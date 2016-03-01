@@ -23,21 +23,21 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.easyrec.model.core.ItemAssocVO;
 import org.easyrec.model.core.ItemVO;
-import org.easyrec.plugin.arm.model.ARMConfiguration;
-import org.easyrec.service.core.TenantService;
-import org.easyrec.service.domain.TypeMappingService;
-
-import java.util.*;
-
 import org.easyrec.plugin.arm.ARMGenerator;
 import org.easyrec.plugin.arm.AssocRuleMiningService;
 import org.easyrec.plugin.arm.TupleCounter;
+import org.easyrec.plugin.arm.model.ARMConfiguration;
 import org.easyrec.plugin.arm.model.ARMConfigurationInt;
 import org.easyrec.plugin.arm.model.ARMStatistics;
 import org.easyrec.plugin.arm.model.TupleVO;
 import org.easyrec.plugin.arm.store.dao.RuleminingActionDAO;
 import org.easyrec.plugin.arm.store.dao.RuleminingItemAssocDAO;
+import org.easyrec.service.core.TenantService;
+import org.easyrec.service.domain.TypeMappingService;
 import org.easyrec.store.dao.core.ArchiveDAO;
+
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 /**
  * <DESCRIPTION>
@@ -483,12 +483,42 @@ public class AssocRuleMiningServiceImpl implements AssocRuleMiningService {
         return ret.values();
     }
 
+
+    /**
+     * Hack to avoid the mysql 5.6 date problem, which somehow isn't resolved completely on the demo server.
+     * The fix is to return a date one second before the date specified, which can be used _quite_ safely to delete old
+     * rules.
+     * TODO: fix the real problem!
+     * @param date
+     * @return
+     */
+    private Date getSafeDateForRuleDeletion(Date date){
+      Calendar cal = Calendar.getInstance();
+      cal.setTime(date);
+      cal.add(Calendar.SECOND, -2);
+      cal.set(Calendar.MILLISECOND, 0);
+      return cal.getTime();
+}
+
+    @Override
     public void removeOldRules(ARMConfigurationInt configuration,
                                ARMStatistics stats) {
-
+        Date thresholdDate = getSafeDateForRuleDeletion(stats.getStartDate());
+        SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS");
+        Integer sourceType = typeMappingService.getIdOfSourceType(configuration.getTenantId(), ARMGenerator.ID
+          .toString() + "/" + ARMGenerator.VERSION);
+        logger.info("removing old rules for calculation started at " +
+                      fmt.format(stats.getStartDate()) +
+                      ", deleting all rules before " +
+                      fmt.format(thresholdDate) +
+                      " for tenant " +
+                      configuration.getTenantId() +
+                      ", assoc type " +
+                      configuration.getAssocType() +
+                      ", source type " +
+                      sourceType);
         itemAssocDAO.removeItemAssocByTenant(configuration.getTenantId(), configuration.getAssocType(),
-                typeMappingService.getIdOfSourceType(configuration.getTenantId(), ARMGenerator.ID.toString() + "/" + ARMGenerator.VERSION),
-                stats.getStartDate());
+                                                         sourceType, thresholdDate);
     }
 
     // getters and setters
